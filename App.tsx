@@ -1,271 +1,79 @@
 import 'react-native-url-polyfill/auto';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform,
-  SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput,
-  TouchableOpacity, View
+  ActivityIndicator, Alert, KeyboardAvoidingView, Platform, SafeAreaView,
+  ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity,
+  View, useWindowDimensions
 } from 'react-native';
 import { createClient, Session } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://mijoszflieskuifnyiuo.supabase.co';
 const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_KJxIgmXkvPXQYOj8ylJVWQ_DK8MNIqo';
 const supabase = createClient(supabaseUrl, supabaseKey);
+const C = { navy:'#103B5C', blue:'#087EBD', aqua:'#12B8B0', mint:'#DDF8F1', coral:'#FF806B', sun:'#FFC857', ink:'#17324D', muted:'#6B7C8F', paper:'#F3F8FA', white:'#FFFFFF', line:'#E1EBEF' };
+type Post = { id:string; author_id:string; body:string; created_at:string; profile?:{display_name?:string;username?:string;avatar_url?:string} };
 
-type Post = {
-  id: string; author_id: string; body: string; created_at: string;
-  profile?: { display_name?: string; username?: string; avatar_url?: string };
-  likes?: number;
-};
+function Pill({label,active,onPress}:any){return <TouchableOpacity onPress={onPress} style={[s.pill,active&&s.pillActive]}><Text style={[s.pillText,active&&{color:C.white}]}>{label}</Text></TouchableOpacity>}
+function Avatar({name='K',large=false}:any){return <View style={[s.avatar,large&&s.avatarLarge]}><Text style={[s.avatarLetter,large&&{fontSize:22}]}>{String(name).slice(0,1).toUpperCase()}</Text></View>}
+function SideLink({icon,label,onPress,active=false}:any){return <TouchableOpacity onPress={onPress} style={[s.sideLink,active&&s.sideLinkActive]}><Text style={s.sideIcon}>{icon}</Text><Text style={[s.sideLabel,active&&{color:C.blue,fontWeight:'800'}]}>{label}</Text></TouchableOpacity>}
 
-const blue = '#1877F2';
-const ink = '#17212B';
-const muted = '#667085';
-const surface = '#FFFFFF';
-const background = '#F0F2F5';
-
-export default function App() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState('Home');
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [draft, setDraft] = useState('');
-  const [profile, setProfile] = useState<any>(null);
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-    });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
-    return () => listener.subscription.unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (session?.user) loadProfileAndFeed();
-  }, [session?.user?.id]);
-
-  async function loadProfileAndFeed() {
-    if (!session?.user) return;
-    const { data: person } = await supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
-    setProfile(person);
-    const { data, error } = await supabase.from('posts')
-      .select('id,author_id,body,created_at')
-      .eq('visibility', 'public').order('created_at', { ascending: false }).limit(40);
-    if (error) { console.warn('Feed:', error.message); return; }
-    const rows = data || [];
-    const ids = [...new Set(rows.map((p: any) => p.author_id))];
-    const { data: people } = ids.length
-      ? await supabase.from('profiles').select('id,display_name,username,avatar_url').in('id', ids)
-      : { data: [] as any[] };
-    const byId = Object.fromEntries((people || []).map((p: any) => [p.id, p]));
-    setPosts(rows.map((p: any) => ({ ...p, profile: byId[p.author_id] })));
-  }
-
-  async function authenticate() {
-    if (!supabaseKey) {
-      Alert.alert('Setup needed', 'Add your Supabase publishable key as EXPO_PUBLIC_SUPABASE_ANON_KEY in the project environment.');
-      return;
-    }
-    if (!email.trim() || password.length < 6) {
-      Alert.alert('Check your details', 'Enter a valid email and a password with at least 6 characters.');
-      return;
-    }
-    setBusy(true);
-    const result = mode === 'signup'
-      ? await supabase.auth.signUp({ email: email.trim(), password, options: { data: { display_name: displayName.trim() } } })
-      : await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    setBusy(false);
-    if (result.error) Alert.alert('Unable to continue', result.error.message);
-    else if (mode === 'signup' && !result.data.session) Alert.alert('Check your email', 'Confirm your email address, then log in.');
-  }
-
-  async function publishPost() {
-    const body = draft.trim();
-    if (!body || !session?.user) return;
-    const { error } = await supabase.from('posts').insert({
-      author_id: session.user.id, body, visibility: 'public'
-    });
-    if (error) Alert.alert('Post not published', error.message);
-    else { setDraft(''); await loadProfileAndFeed(); }
-  }
-
-  async function likePost(postId: string) {
-    if (!session?.user) return;
-    const { error } = await supabase.from('post_likes').insert({ post_id: postId, user_id: session.user.id });
-    if (error && !error.message.toLowerCase().includes('duplicate')) Alert.alert('Like unavailable', error.message);
-  }
-
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={blue} /></View>;
-
-  if (!session) return (
-    <SafeAreaView style={styles.authPage}>
-      <StatusBar barStyle="light-content" />
-      <View style={styles.authBrand}>
-        <Text style={styles.logo}>K</Text>
-        <Text style={styles.brandName}>KaMoRaLe</Text>
-        <Text style={styles.tagline}>Across the islands. Connected as one.</Text>
-      </View>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.authCard}>
-        <Text style={styles.authTitle}>{mode === 'login' ? 'Welcome back' : 'Join your community'}</Text>
-        <Text style={styles.subtle}>Connect with friends, family, and island communities.</Text>
-        {mode === 'signup' && <TextInput style={styles.input} placeholder="Your name" value={displayName} onChangeText={setDisplayName} />}
-        <TextInput style={styles.input} placeholder="Email address" autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
-        <TextInput style={styles.input} placeholder="Password" secureTextEntry value={password} onChangeText={setPassword} />
-        <TouchableOpacity style={styles.primaryButton} onPress={authenticate} disabled={busy}>
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>{mode === 'login' ? 'Log in' : 'Create account'}</Text>}
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setMode(mode === 'login' ? 'signup' : 'login')} style={styles.switch}>
-          <Text style={styles.link}>{mode === 'login' ? 'Create a new account' : 'Already have an account? Log in'}</Text>
-        </TouchableOpacity>
-      </KeyboardAvoidingView>
-      <Text style={styles.footer}>Micronesia and our people, wherever life takes us. 🇫🇲</Text>
-    </SafeAreaView>
-  );
-
-  return (
-    <SafeAreaView style={styles.page}>
-      <StatusBar barStyle="dark-content" />
-      <View style={styles.topBar}>
-        <Text style={styles.wordmark}>KaMoRaLe</Text>
-        <View style={styles.topActions}>
-          <TouchableOpacity style={styles.roundAction} onPress={() => setTab('Search')}><Text>⌕</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.roundAction} onPress={() => setTab('Messages')}><Text>✉</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.roundAction} onPress={() => supabase.auth.signOut()}><Text>↪</Text></TouchableOpacity>
-        </View>
-      </View>
-      <View style={styles.nav}>
-        {['Home', 'Friends', 'Watch', 'Groups', 'Notifications'].map(item => (
-          <TouchableOpacity key={item} onPress={() => setTab(item)} style={[styles.navItem, tab === item && styles.navSelected]}>
-            <Text style={[styles.navText, tab === item && styles.navTextSelected]}>{item}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      <ScrollView contentContainerStyle={styles.feed}>
-        <View style={styles.welcomeRow}>
-          <Text style={styles.heading}>{tab === 'Home' ? 'Your Feed' : tab}</Text>
-          <Text style={styles.subtle}>Welcome{profile?.display_name ? ', ' + profile.display_name : ''}</Text>
-        </View>
-        {tab === 'Home' ? <>
-          <View style={styles.storiesCard}>
-            <Text style={styles.cardTitle}>Stories</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {['Your story', 'Yap', 'Chuuk', 'Pohnpei', 'Kosrae'].map((name, i) => (
-                <View key={name} style={styles.story}>
-                  <View style={[styles.storyCircle, i === 0 && styles.storyOwn]}><Text style={styles.storyEmoji}>{['＋','🌴','🌊','🌺','☀️'][i]}</Text></View>
-                  <Text style={styles.storyName}>{name}</Text>
-                </View>
-              ))}
-            </ScrollView>
-          </View>
-          <View style={styles.composer}>
-            <View style={styles.composerTop}>
-              <View style={styles.avatar}><Text style={styles.avatarText}>{(profile?.display_name || 'K').slice(0,1).toUpperCase()}</Text></View>
-              <TextInput style={styles.composerInput} placeholder="What's on your mind?" value={draft} onChangeText={setDraft} multiline />
-            </View>
-            <View style={styles.composerActions}>
-              <Text style={styles.subtle}>Share with your community</Text>
-              <TouchableOpacity style={styles.smallPrimary} onPress={publishPost}><Text style={styles.primaryText}>Post</Text></TouchableOpacity>
-            </View>
-          </View>
-          {posts.map(post => (
-            <View key={post.id} style={styles.postCard}>
-              <View style={styles.postHeader}>
-                <View style={styles.avatar}><Text style={styles.avatarText}>{(post.profile?.display_name || 'K').slice(0,1).toUpperCase()}</Text></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.postAuthor}>{post.profile?.display_name || 'KaMoRaLe member'}</Text>
-                  <Text style={styles.subtle}>@{post.profile?.username || 'islander'} · {new Date(post.created_at).toLocaleDateString()}</Text>
-                </View>
-                <Text style={styles.more}>•••</Text>
-              </View>
-              <Text style={styles.postBody}>{post.body}</Text>
-              <View style={styles.postActions}>
-                <TouchableOpacity onPress={() => likePost(post.id)} style={styles.action}><Text style={styles.actionText}>♡  Like</Text></TouchableOpacity>
-                <TouchableOpacity style={styles.action} onPress={() => setTab('Comments')}><Text style={styles.actionText}>◯  Comment</Text></TouchableOpacity>
-                <TouchableOpacity style={styles.action}><Text style={styles.actionText}>↗  Share</Text></TouchableOpacity>
-              </View>
-            </View>
-          ))}
-          {!posts.length && <View style={styles.empty}><Text style={styles.emptyTitle}>Your community starts here 🌺</Text><Text style={styles.subtle}>Be the first to share a moment.</Text></View>}
-        </> : (
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>{tab}</Text>
-            <Text style={styles.subtle}>This section is part of the KaMoRaLe build plan and is being connected next.</Text>
-          </View>
-        )}
-      </ScrollView>
-      <View style={styles.bottomNav}>
-        {['Home', 'Friends', 'Groups', 'Notifications', 'Profile'].map(item => (
-          <TouchableOpacity key={item} onPress={() => setTab(item)} style={styles.bottomItem}>
-            <Text style={[styles.bottomIcon, tab === item && { color: blue }]}>{({Home:'⌂',Friends:'♧',Groups:'▦',Notifications:'♢',Profile:'◉'} as any)[item]}</Text>
-            <Text style={[styles.bottomLabel, tab === item && { color: blue }]}>{item}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-    </SafeAreaView>
-  );
+export default function App(){
+ const {width}=useWindowDimensions();
+ const desktop=width>=1120, tablet=width>=760;
+ const [session,setSession]=useState<Session|null>(null),[loading,setLoading]=useState(true),[mode,setMode]=useState<'login'|'signup'>('login');
+ const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[displayName,setDisplayName]=useState(''),[busy,setBusy]=useState(false);
+ const [tab,setTab]=useState('Home'),[posts,setPosts]=useState<Post[]>([]),[draft,setDraft]=useState(''),[profile,setProfile]=useState<any>(null);
+ useEffect(()=>{supabase.auth.getSession().then(({data})=>{setSession(data.session);setLoading(false)});const {data:listener}=supabase.auth.onAuthStateChange((_e,next)=>setSession(next));return()=>listener.subscription.unsubscribe()},[]);
+ useEffect(()=>{if(session?.user)loadFeed()},[session?.user?.id]);
+ async function loadFeed(){
+  if(!session?.user)return;
+  const {data:person}=await supabase.from('profiles').select('*').eq('id',session.user.id).maybeSingle();setProfile(person);
+  const {data,error}=await supabase.from('posts').select('id,author_id,body,created_at').eq('visibility','public').order('created_at',{ascending:false}).limit(40);
+  if(error){console.warn(error.message);return}
+  const rows=data||[],ids=[...new Set(rows.map((p:any)=>p.author_id))];
+  const {data:people}=ids.length?await supabase.from('profiles').select('id,display_name,username,avatar_url').in('id',ids):{data:[] as any[]};
+  const byId=Object.fromEntries((people||[]).map((p:any)=>[p.id,p]));setPosts(rows.map((p:any)=>({...p,profile:byId[p.author_id]})));
+ }
+ async function authenticate(){
+  if(!email.trim()||password.length<6){Alert.alert('Check your details','Enter an email and a password of at least 6 characters.');return}
+  setBusy(true);const result=mode==='signup'?await supabase.auth.signUp({email:email.trim(),password,options:{data:{display_name:displayName.trim()}}}):await supabase.auth.signInWithPassword({email:email.trim(),password});setBusy(false);
+  if(result.error)Alert.alert('Unable to continue',result.error.message);else if(mode==='signup'&&!result.data.session)Alert.alert('Check your email','Confirm your email, then log in.');
+ }
+ async function publish(){const body=draft.trim();if(!body||!session?.user)return;const {error}=await supabase.from('posts').insert({author_id:session.user.id,body,visibility:'public'});if(error)Alert.alert('Post not published',error.message);else{setDraft('');await loadFeed()}}
+ async function like(id:string){if(!session?.user)return;const {error}=await supabase.from('post_likes').insert({post_id:id,user_id:session.user.id});if(error&&!error.message.toLowerCase().includes('duplicate'))Alert.alert('Like unavailable',error.message)}
+ if(loading)return <View style={s.loading}><ActivityIndicator size="large" color={C.blue}/></View>;
+ if(!session)return <SafeAreaView style={s.authPage}><StatusBar barStyle="light-content"/><View style={s.authHero}><View style={s.brandMark}><Text style={s.brandMarkText}>K</Text></View><Text style={s.authBrand}>KaMoRaLe</Text><Text style={s.authTag}>Across the islands. Connected as one.</Text><View style={s.islandDots}><Text>🌊　🌴　🌺　☀️　🇫🇲</Text></View></View><KeyboardAvoidingView behavior={Platform.OS==='ios'?'padding':undefined} style={s.authCard}><Text style={s.authTitle}>{mode==='login'?'Welcome back':'Join your community'}</Text><Text style={s.muted}>Connect with friends, family, and island communities.</Text>{mode==='signup'&&<TextInput style={s.input} placeholder="Your name" value={displayName} onChangeText={setDisplayName}/>}<TextInput style={s.input} placeholder="Email address" autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail}/><TextInput style={s.input} placeholder="Password" secureTextEntry value={password} onChangeText={setPassword}/><TouchableOpacity style={s.primary} onPress={authenticate} disabled={busy}>{busy?<ActivityIndicator color="#fff"/>:<Text style={s.primaryText}>{mode==='login'?'Log in':'Create account'}</Text>}</TouchableOpacity><TouchableOpacity style={s.switch} onPress={()=>setMode(mode==='login'?'signup':'login')}><Text style={s.link}>{mode==='login'?'Create a new account':'Already a member? Log in'}</Text></TouchableOpacity></KeyboardAvoidingView><Text style={s.authFoot}>Micronesia and our people, wherever life takes us. 🇫🇲</Text></SafeAreaView>;
+ const nav=[['⌂','Home'],['♧','Friends'],['▦','Groups'],['▶','Watch'],['♢','Notifications']];
+ return <SafeAreaView style={s.app}><StatusBar barStyle="dark-content"/>
+  <View style={s.header}><View style={s.headerInner}><View style={s.brandLine}><View style={s.miniMark}><Text style={s.miniMarkText}>K</Text></View><Text style={s.wordmark}>KaMoRaLe</Text></View><View style={s.search}><Text style={{fontSize:18,color:C.muted}}>⌕</Text><TextInput placeholder="Search KaMoRaLe" style={s.searchInput}/></View><View style={s.headerBtns}><TouchableOpacity style={s.headerBtn} onPress={()=>setTab('Messages')}><Text style={s.headerIcon}>✉</Text></TouchableOpacity><TouchableOpacity style={s.headerBtn} onPress={()=>setTab('Notifications')}><Text style={s.headerIcon}>♢</Text></TouchableOpacity><TouchableOpacity onPress={()=>supabase.auth.signOut()} style={s.headerAvatar}><Avatar name={profile?.display_name||'K'}/></TouchableOpacity></View></View></View>
+  <View style={s.navBar}><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.navInner}>{nav.map(([icon,label])=><TouchableOpacity key={label} onPress={()=>setTab(label)} style={[s.navTab,tab===label&&s.navTabActive]}><Text style={[s.navTabIcon,tab===label&&{color:C.blue}]}>{icon}</Text><Text style={[s.navTabText,tab===label&&{color:C.blue}]}>{label}</Text></TouchableOpacity>)}</ScrollView></View>
+  <ScrollView contentContainerStyle={s.pageBody}>
+   <View style={[s.layout,desktop&&s.layoutDesktop,tablet&&!desktop&&s.layoutTablet]}>
+    {tablet&&<View style={[s.leftCol,desktop&&{width:230}]}><View style={s.profileMini}><Avatar name={profile?.display_name||'K'} large/><Text style={s.profileName}>{profile?.display_name||'Your profile'}</Text><Text style={s.profileHandle}>@{profile?.username||'islander'}</Text></View>{[['⌂','Home'],['♧','Friends'],['▦','Groups'],['▣','Saved'],['◷','Memories'],['▤','Events'],['▶','Watch'],['⚙','Settings']].map(([i,l])=><SideLink key={l} icon={i} label={l} active={tab===l} onPress={()=>setTab(l)}/>)}<View style={s.communityBox}><Text style={s.communityEmoji}>🌴</Text><Text style={s.communityTitle}>Island communities</Text><Text style={s.muted}>Stay close to the places and people you call home.</Text></View></View>}
+    <View style={[s.centerCol,desktop&&{maxWidth:650}]}>
+     <View style={s.welcome}><Text style={s.eyebrow}>YOUR ISLAND. YOUR PEOPLE.</Text><Text style={s.pageTitle}>{tab==='Home'?'Good to see you again':tab}</Text><Text style={s.muted}>A little closer, wherever you are.</Text></View>
+     {tab==='Home'?<>
+      <View style={s.storiesCard}><View style={s.sectionHead}><Text style={s.sectionTitle}>Stories</Text><Text style={s.seeAll}>See all</Text></View><ScrollView horizontal showsHorizontalScrollIndicator={false}>{['Your story','Yap','Chuuk','Pohnpei','Kosrae'].map((name,i)=><TouchableOpacity key={name} style={s.story}><View style={[s.storyRing,i===0&&s.storyOwn]}><View style={s.storyInner}><Text style={s.storyEmoji}>{['＋','🌴','🌊','🌺','☀️'][i]}</Text></View></View><Text style={s.storyName}>{name}</Text></TouchableOpacity>)}</ScrollView></View>
+      <View style={s.composer}><View style={s.composeTop}><Avatar name={profile?.display_name||'K'}/><TextInput style={s.composeInput} placeholder="What's happening in your world?" value={draft} onChangeText={setDraft} multiline/></View><View style={s.composeFoot}><Text style={s.muted}>Share a moment with your community</Text><TouchableOpacity style={s.postButton} onPress={publish}><Text style={s.primaryText}>Share post</Text></TouchableOpacity></View><View style={s.composeExtras}><Text style={s.extraAction}>▧　Photo</Text><Text style={s.extraAction}>▶　Video</Text><Text style={s.extraAction}>☺　Feeling</Text></View></View>
+      {posts.map(post=><View key={post.id} style={s.postCard}><View style={s.postHeader}><Avatar name={post.profile?.display_name||'K'}/><View style={{flex:1}}><Text style={s.postAuthor}>{post.profile?.display_name||'KaMoRaLe member'}</Text><Text style={s.postMeta}>@{post.profile?.username||'islander'}　·　{new Date(post.created_at).toLocaleDateString()}</Text></View><Text style={s.more}>•••</Text></View><Text style={s.postBody}>{post.body}</Text><View style={s.postDivider}/><View style={s.postActions}><TouchableOpacity onPress={()=>like(post.id)}><Text style={s.actionText}>♡　Like</Text></TouchableOpacity><TouchableOpacity onPress={()=>setTab('Comments')}><Text style={s.actionText}>◯　Comment</Text></TouchableOpacity><TouchableOpacity><Text style={s.actionText}>↗　Share</Text></TouchableOpacity></View></View>)}
+      {!posts.length&&<View style={s.empty}><Text style={{fontSize:32}}>🌺</Text><Text style={s.emptyTitle}>Your community starts here</Text><Text style={s.muted}>Be the first to share a moment with your people.</Text></View>}
+     </>:<View style={s.empty}><Text style={{fontSize:32}}>🌊</Text><Text style={s.emptyTitle}>{tab}</Text><Text style={s.muted}>This space is ready for its next feature build.</Text></View>}
+    </View>
+    {desktop&&<View style={s.rightCol}><View style={s.rightCard}><Text style={s.sectionTitle}>Your communities</Text>{[['🇫🇲','Federated States of Micronesia'],['🌴','Yap Islanders'],['🌊','Chuuk Community'],['🌺','Pohnpei Community'],['☀️','Kosrae Community']].map(([e,n])=><View key={n} style={s.communityRow}><Text style={{fontSize:21}}>{e}</Text><Text style={s.communityName}>{n}</Text></View>)}</View><View style={s.rightCard}><Text style={s.sectionTitle}>People you may know</Text><View style={s.suggestion}><Avatar name="M"/><View style={{flex:1}}><Text style={s.postAuthor}>Meet more islanders</Text><Text style={s.postMeta}>Find friends across the islands</Text></View></View><TouchableOpacity onPress={()=>setTab('Friends')}><Text style={s.seeAll}>Find people →</Text></TouchableOpacity></View><View style={s.rightFoot}>KaMoRaLe · Connecting our islands <Text>🇫🇲</Text></View></View>}
+   </View>
+  </ScrollView>
+  {!tablet&&<View style={s.mobileNav}>{[['⌂','Home'],['♧','Friends'],['＋','Create'],['♢','Alerts'],['☰','Menu']].map(([i,l])=><TouchableOpacity key={l} style={s.mobileNavItem} onPress={()=>setTab(l==='Create'?'Home':l==='Alerts'?'Notifications':l==='Menu'?'Groups':l)}><Text style={[s.mobileIcon,tab===l&&{color:C.blue}]}>{i}</Text><Text style={s.mobileLabel}>{l}</Text></TouchableOpacity>)}</View>}
+ </SafeAreaView>
 }
-
-const styles = StyleSheet.create({
-  center:{flex:1,alignItems:'center',justifyContent:'center',backgroundColor:background},
-  authPage:{flex:1,backgroundColor:'#123F73',justifyContent:'center',padding:22},
-  authBrand:{alignItems:'center',marginBottom:28},
-  logo:{width:62,height:62,lineHeight:62,textAlign:'center',borderRadius:18,overflow:'hidden',backgroundColor:'#fff',color:blue,fontSize:38,fontWeight:'900'},
-  brandName:{color:'#fff',fontSize:32,fontWeight:'900',marginTop:12},
-  tagline:{color:'#dceaff',marginTop:5},
-  authCard:{backgroundColor:surface,borderRadius:18,padding:22,maxWidth:460,width:'100%',alignSelf:'center'},
-  authTitle:{fontSize:25,fontWeight:'800',color:ink,marginBottom:6},
-  subtle:{color:muted,fontSize:13},
-  input:{borderWidth:1,borderColor:'#D8DDE5',borderRadius:10,padding:14,marginTop:14,color:ink,backgroundColor:'#fff'},
-  primaryButton:{backgroundColor:blue,padding:14,borderRadius:10,alignItems:'center',marginTop:18},
-  primaryText:{color:'#fff',fontWeight:'800'},
-  switch:{alignItems:'center',padding:16},
-  link:{color:blue,fontWeight:'700'},
-  footer:{color:'#DCEAFF',textAlign:'center',marginTop:24,fontSize:12},
-  page:{flex:1,backgroundColor:background},
-  topBar:{height:58,backgroundColor:surface,alignItems:'center',justifyContent:'space-between',flexDirection:'row',paddingHorizontal:16,borderBottomWidth:1,borderBottomColor:'#E4E6EB'},
-  wordmark:{fontSize:25,fontWeight:'900',color:blue,letterSpacing:-1},
-  topActions:{flexDirection:'row',gap:9},
-  roundAction:{width:38,height:38,borderRadius:20,backgroundColor:'#E4E6EB',alignItems:'center',justifyContent:'center'},
-  nav:{height:48,backgroundColor:surface,flexDirection:'row',justifyContent:'space-around',borderBottomWidth:1,borderBottomColor:'#E4E6EB'},
-  navItem:{justifyContent:'center',paddingHorizontal:9,borderBottomWidth:3,borderBottomColor:'transparent'},
-  navSelected:{borderBottomColor:blue},
-  navText:{fontSize:12,color:muted,fontWeight:'600'},
-  navTextSelected:{color:blue},
-  feed:{padding:12,paddingBottom:35,maxWidth:760,width:'100%',alignSelf:'center'},
-  welcomeRow:{marginBottom:12},
-  heading:{fontSize:23,fontWeight:'800',color:ink},
-  storiesCard:{backgroundColor:surface,borderRadius:13,padding:14,marginBottom:12},
-  cardTitle:{fontSize:16,fontWeight:'800',color:ink,marginBottom:12},
-  story:{alignItems:'center',width:70,marginRight:8},
-  storyCircle:{width:52,height:52,borderRadius:27,backgroundColor:'#DDEBFA',alignItems:'center',justifyContent:'center',borderWidth:2,borderColor:blue},
-  storyOwn:{backgroundColor:'#EEF3F8'},
-  storyEmoji:{fontSize:22},
-  storyName:{fontSize:11,color:ink,marginTop:5},
-  composer:{backgroundColor:surface,borderRadius:13,padding:14,marginBottom:12},
-  composerTop:{flexDirection:'row',alignItems:'center',gap:10},
-  avatar:{width:42,height:42,borderRadius:22,backgroundColor:'#DCEBFA',alignItems:'center',justifyContent:'center'},
-  avatarText:{fontSize:18,fontWeight:'800',color:'#1762B2'},
-  composerInput:{flex:1,minHeight:44,maxHeight:100,backgroundColor:background,borderRadius:22,paddingHorizontal:15,paddingVertical:10,color:ink},
-  composerActions:{borderTopWidth:1,borderTopColor:'#E4E6EB',marginTop:12,paddingTop:10,flexDirection:'row',justifyContent:'space-between',alignItems:'center'},
-  smallPrimary:{backgroundColor:blue,paddingHorizontal:20,paddingVertical:8,borderRadius:8},
-  postCard:{backgroundColor:surface,borderRadius:13,padding:15,marginBottom:12},
-  postHeader:{flexDirection:'row',alignItems:'center',gap:10},
-  postAuthor:{fontSize:14,fontWeight:'800',color:ink},
-  more:{color:muted,fontWeight:'900',paddingHorizontal:5},
-  postBody:{fontSize:15,color:ink,lineHeight:23,marginVertical:16},
-  postActions:{borderTopWidth:1,borderTopColor:'#E4E6EB',flexDirection:'row',justifyContent:'space-around',paddingTop:10},
-  action:{padding:7},
-  actionText:{color:muted,fontWeight:'700',fontSize:13},
-  empty:{backgroundColor:surface,borderRadius:13,padding:30,alignItems:'center',marginTop:10},
-  emptyTitle:{fontSize:17,fontWeight:'800',color:ink,marginBottom:7},
-  bottomNav:{height:62,backgroundColor:surface,borderTopWidth:1,borderTopColor:'#E4E6EB',flexDirection:'row',justifyContent:'space-around',alignItems:'center'},
-  bottomItem:{alignItems:'center',justifyContent:'center',minWidth:55},
-  bottomIcon:{fontSize:20,color:muted},
-  bottomLabel:{fontSize:10,color:muted,marginTop:2}
+const s=StyleSheet.create({
+ loading:{flex:1,alignItems:'center',justifyContent:'center',backgroundColor:C.paper},
+ authPage:{flex:1,backgroundColor:C.navy,justifyContent:'center',padding:22},authHero:{alignItems:'center',marginBottom:24},brandMark:{width:68,height:68,borderRadius:23,backgroundColor:C.sun,alignItems:'center',justifyContent:'center'},brandMarkText:{fontSize:42,fontWeight:'900',color:C.navy},authBrand:{fontSize:36,fontWeight:'900',color:C.white,marginTop:12},authTag:{color:'#D7F2F4',marginTop:5},islandDots:{marginTop:18},authCard:{backgroundColor:C.white,borderRadius:22,padding:23,maxWidth:460,width:'100%',alignSelf:'center'},authTitle:{fontSize:25,fontWeight:'900',color:C.ink,marginBottom:6},muted:{color:C.muted,fontSize:13,lineHeight:19},input:{borderWidth:1,borderColor:C.line,borderRadius:12,padding:14,marginTop:14,color:C.ink},primary:{backgroundColor:C.blue,padding:15,borderRadius:12,alignItems:'center',marginTop:18},primaryText:{color:C.white,fontWeight:'800'},switch:{alignItems:'center',padding:16},link:{color:C.blue,fontWeight:'800'},authFoot:{color:'#D7F2F4',textAlign:'center',marginTop:22,fontSize:12},
+ app:{flex:1,backgroundColor:C.paper},header:{backgroundColor:C.white,borderBottomWidth:1,borderBottomColor:C.line},headerInner:{height:66,width:'100%',maxWidth:1440,alignSelf:'center',paddingHorizontal:22,flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:20},brandLine:{flexDirection:'row',alignItems:'center',gap:9},miniMark:{width:35,height:35,borderRadius:12,backgroundColor:C.sun,alignItems:'center',justifyContent:'center'},miniMarkText:{fontSize:23,fontWeight:'900',color:C.navy},wordmark:{fontSize:25,fontWeight:'900',color:C.navy,letterSpacing:-1},search:{height:40,backgroundColor:C.paper,borderRadius:22,paddingHorizontal:14,flexDirection:'row',alignItems:'center',gap:8,width:300},searchInput:{flex:1,outlineStyle:'none' as any,color:C.ink},headerBtns:{flexDirection:'row',alignItems:'center',gap:10},headerBtn:{width:40,height:40,borderRadius:20,backgroundColor:C.paper,alignItems:'center',justifyContent:'center'},headerIcon:{fontSize:20,color:C.navy},headerAvatar:{padding:2},avatar:{width:42,height:42,borderRadius:22,backgroundColor:C.mint,alignItems:'center',justifyContent:'center',borderWidth:2,borderColor:'#B6EEE4'},avatarLarge:{width:60,height:60,borderRadius:30},avatarLetter:{fontSize:18,fontWeight:'900',color:C.navy},
+ navBar:{backgroundColor:C.white,borderBottomWidth:1,borderBottomColor:C.line},navInner:{maxWidth:900,width:'100%',alignSelf:'center',flexDirection:'row',justifyContent:'space-around'},navTab:{minWidth:90,paddingVertical:11,alignItems:'center',borderBottomWidth:3,borderBottomColor:'transparent',flexDirection:'row',justifyContent:'center',gap:7},navTabActive:{borderBottomColor:C.aqua},navTabIcon:{fontSize:17,color:C.muted},navTabText:{fontSize:13,fontWeight:'800',color:C.muted},
+ pageBody:{paddingHorizontal:18,paddingTop:20,paddingBottom:30},layout:{width:'100%',maxWidth:1390,alignSelf:'center',gap:22},layoutDesktop:{flexDirection:'row',alignItems:'flex-start',justifyContent:'center'},layoutTablet:{flexDirection:'row',alignItems:'flex-start'},leftCol:{width:210},centerCol:{width:'100%',maxWidth:690,flex:1,alignSelf:'center'},rightCol:{width:270},profileMini:{backgroundColor:C.white,borderRadius:18,padding:18,alignItems:'center',marginBottom:12},profileName:{fontSize:15,fontWeight:'900',color:C.ink,marginTop:9},profileHandle:{fontSize:12,color:C.muted,marginTop:3},sideLink:{flexDirection:'row',alignItems:'center',gap:12,paddingVertical:11,paddingHorizontal:12,borderRadius:12},sideLinkActive:{backgroundColor:'#E2F6F4'},sideIcon:{fontSize:20,color:C.blue,width:24,textAlign:'center'},sideLabel:{fontSize:14,fontWeight:'700',color:C.ink},communityBox:{backgroundColor:'#E4F7F3',borderRadius:16,padding:15,marginTop:18},communityEmoji:{fontSize:23},communityTitle:{fontWeight:'900',color:C.navy,marginVertical:6},welcome:{marginBottom:15},eyebrow:{fontSize:10,fontWeight:'900',letterSpacing:1.8,color:C.aqua},pageTitle:{fontSize:27,fontWeight:'900',color:C.navy,marginTop:4},
+ storiesCard:{backgroundColor:C.white,borderRadius:18,padding:16,marginBottom:14,borderWidth:1,borderColor:C.line},sectionHead:{flexDirection:'row',justifyContent:'space-between',marginBottom:13},sectionTitle:{fontSize:16,fontWeight:'900',color:C.navy},seeAll:{fontSize:12,fontWeight:'800',color:C.blue},story:{alignItems:'center',width:75,marginRight:10},storyRing:{width:60,height:60,borderRadius:30,borderWidth:3,borderColor:C.aqua,alignItems:'center',justifyContent:'center'},storyOwn:{borderColor:C.sun},storyInner:{width:50,height:50,borderRadius:25,backgroundColor:'#E6F8F4',alignItems:'center',justifyContent:'center'},storyEmoji:{fontSize:23},storyName:{fontSize:11,color:C.ink,marginTop:6,fontWeight:'700'},
+ composer:{backgroundColor:C.white,borderRadius:18,padding:16,marginBottom:14,borderWidth:1,borderColor:C.line},composeTop:{flexDirection:'row',alignItems:'center',gap:11},composeInput:{flex:1,minHeight:46,maxHeight:110,backgroundColor:C.paper,borderRadius:24,paddingHorizontal:16,paddingVertical:12,color:C.ink},composeFoot:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginTop:13,paddingTop:12,borderTopWidth:1,borderTopColor:C.line},postButton:{backgroundColor:C.blue,paddingHorizontal:20,paddingVertical:9,borderRadius:18},composeExtras:{flexDirection:'row',justifyContent:'space-around',marginTop:12},extraAction:{fontSize:12,fontWeight:'800',color:C.muted},
+ postCard:{backgroundColor:C.white,borderRadius:18,padding:17,marginBottom:14,borderWidth:1,borderColor:C.line},postHeader:{flexDirection:'row',alignItems:'center',gap:10},postAuthor:{fontSize:14,fontWeight:'900',color:C.ink},postMeta:{fontSize:11,color:C.muted,marginTop:3},more:{color:C.muted,fontWeight:'900'},postBody:{fontSize:15,color:C.ink,lineHeight:24,marginVertical:17},postDivider:{height:1,backgroundColor:C.line},postActions:{flexDirection:'row',justifyContent:'space-around',paddingTop:13},actionText:{fontSize:12,fontWeight:'800',color:C.muted},empty:{backgroundColor:C.white,borderRadius:18,padding:32,alignItems:'center',marginTop:10,borderWidth:1,borderColor:C.line},emptyTitle:{fontSize:17,fontWeight:'900',color:C.navy,marginTop:8},
+ rightCard:{backgroundColor:C.white,borderRadius:17,padding:16,marginBottom:13,borderWidth:1,borderColor:C.line},communityRow:{flexDirection:'row',alignItems:'center',gap:10,marginTop:14},communityName:{fontSize:12,fontWeight:'700',color:C.ink,flex:1},suggestion:{flexDirection:'row',alignItems:'center',gap:10,marginVertical:15},rightFoot:{fontSize:11,color:C.muted,lineHeight:18,padding:8},
+ mobileNav:{height:62,backgroundColor:C.white,borderTopWidth:1,borderTopColor:C.line,flexDirection:'row',justifyContent:'space-around',alignItems:'center'},mobileNavItem:{alignItems:'center',minWidth:52},mobileIcon:{fontSize:21,color:C.muted},mobileLabel:{fontSize:10,color:C.muted,marginTop:2},pill:{padding:8,borderRadius:18},pillActive:{backgroundColor:C.blue},pillText:{fontSize:12,color:C.ink}
 });
-// Build verification trigger: KaMoRaLe Expo web deployment.
