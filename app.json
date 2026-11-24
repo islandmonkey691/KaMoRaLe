@@ -14,7 +14,8 @@
       "package": "com.kamorale.social"
     },
     "web": {
-      "bundler": "metro"
+      "bundler": "metro",
+      "baseUrl": "/KaMoRaLe"
     }
   }
 }
