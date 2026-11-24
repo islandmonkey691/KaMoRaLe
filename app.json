@@ -15,7 +15,7 @@
     },
     "web": {
       "bundler": "metro",
-      "baseUrl": "/KaMoRaLe"
+      "baseUrl": "/KaMoRaLe/app"
     }
   }
 }
