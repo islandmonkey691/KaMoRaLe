@@ -1,0 +1,11 @@
+{
+  "name": "KaMoRaLe — The Islands Connect",
+  "short_name": "KaMoRaLe",
+  "description": "A community for Micronesians, wherever life takes you.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f3eb",
+  "theme_color": "#102a27",
+  "icons": []
+}
