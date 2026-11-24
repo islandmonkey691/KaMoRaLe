@@ -9,6 +9,8 @@ on:
       - "package.json"
       - "package-lock.json"
       - "tsconfig.json"
+      - "index.html"
+      - "manifest.webmanifest"
       - ".github/workflows/expo-web.yml"
   workflow_dispatch:
 
@@ -33,8 +35,12 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
-      - name: Export Expo web app
-        run: npx expo export --platform web --output-dir dist
+      - name: Preserve the existing landing page
+        run: |
+          mkdir -p dist/app
+          cp index.html manifest.webmanifest dist/
+      - name: Export Expo web app into /app
+        run: npx expo export --platform web --output-dir dist/app
         env:
           EXPO_PUBLIC_SUPABASE_URL: https://mijoszflieskuifnyiuo.supabase.co
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
