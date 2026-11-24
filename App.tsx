@@ -8,7 +8,7 @@ import {
 import { createClient, Session } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://mijoszflieskuifnyiuo.supabase.co';
-const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_KJxIgmXkvPXQYOj8ylJVWQ_DK8MNIqo';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 type Post = {
