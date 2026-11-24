@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "KaMoRaLe",
+    "slug": "kamorale",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "kamorale",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.kamorale.social"
+    },
+    "android": {
+      "package": "com.kamorale.social"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
